@@ -2,6 +2,7 @@ name: Book softball lesson
 
 on:
   schedule:
+    # Every 5 minutes (GitHub may delay scheduled runs when busy)
     - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
