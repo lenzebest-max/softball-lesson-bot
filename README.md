@@ -23,7 +23,7 @@ grabs **6:00 PM** instead.
 
 | | |
 |---|---|
-| ⏱️ **Checks every 5 minutes** | A GitHub Actions cron job, so nothing has to run on your computer |
+| ⏱️ **Checks every 5 minutes** | [cron-job.org](https://cron-job.org) starts the GitHub Action, with GitHub's own schedule as a backup, so nothing runs on your computer |
 | 🎯 **Targets the right slot** | Thursday 7 PM ET first, 6 PM ET as the fallback, up to 15 days ahead |
 | 📝 **Fills the form like a person** | Name, email, phone, and the player's name in the *Athletes name* question |
 | 🔁 **Never double-books** | Every booked date goes into [`booked.json`](booked.json) and is skipped afterwards |
@@ -63,7 +63,21 @@ flowchart LR
 | Variable | What it does |
 |---|---|
 | `EVENT_SLUG` | Which lesson type to book. Set to `individual-pitching-lesson-1`. Every run's log lists the available types. |
-| `BOT_ENABLED` | `true` lets the 5-minute schedule book for real. Anything else pauses it. |
+| `BOT_ENABLED` | `true` lets the bot book for real. Anything else pauses every real booking, however the run was started. |
+
+## ⏰ The 5-minute timer
+
+GitHub's built-in schedule can lag or skip on busy days, so a free [cron-job.org](https://cron-job.org) job
+starts the workflow every 5 minutes instead:
+
+| Setting | Value |
+|---|---|
+| URL | `https://api.github.com/repos/lenzebest-max/softball-lesson-bot/actions/workflows/book.yml/dispatches` |
+| Method | `POST` |
+| Headers | `Authorization: Bearer <fine-grained token, Actions: read & write on this repo only>`<br>`Accept: application/vnd.github+json`<br>`Content-Type: application/json` |
+| Body | `{"ref":"main","inputs":{"dry_run":"false"}}` |
+
+GitHub replies `204 No Content` when the run has started.
 
 ## 🧪 Testing without booking
 
@@ -77,7 +91,7 @@ Screenshots appear under the run's **Artifacts → screenshots**.
 ## ⏸️ Turning it off
 
 ```bash
-gh variable set BOT_ENABLED --body false   # pause scheduled bookings
+gh variable set BOT_ENABLED --body false   # pause all real bookings
 gh workflow disable book.yml               # or switch the workflow off completely
 ```
 
