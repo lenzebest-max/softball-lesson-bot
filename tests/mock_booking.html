@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mock Calendly booking form (test only)</title>
+<style>
+  body { margin: 0; font-family: Arial, Helvetica, sans-serif; background: #f2f2f2; color: #1a1a1a; }
+  .banner { background: #ffe8a3; text-align: center; padding: 8px; font-size: 14px; }
+  .card { display: flex; max-width: 1060px; margin: 32px auto; background: #fff; border-radius: 8px;
+          box-shadow: 0 1px 8px rgba(0,0,0,.08); }
+  .left { width: 340px; padding: 28px; border-right: 1px solid #e6e6e6; }
+  .left h1 { font-size: 26px; margin: 8px 0 18px; }
+  .meta { color: #555; margin: 10px 0; }
+  .right { flex: 1; padding: 28px 36px; }
+  h2 { font-size: 20px; margin-top: 0; }
+  label { display: block; font-weight: bold; font-size: 14px; margin: 18px 0 8px; }
+  input, textarea { width: 100%; box-sizing: border-box; padding: 12px; font-size: 15px;
+                    border: 1px solid #b2b2b2; border-radius: 8px; }
+  textarea { min-height: 70px; }
+  .phone { display: flex; gap: 8px; } .phone span { padding: 12px; border: 1px solid #b2b2b2; border-radius: 8px; }
+  button { margin-top: 24px; background: #006bff; color: #fff; border: 0; border-radius: 40px;
+           padding: 12px 22px; font-size: 15px; font-weight: bold; cursor: pointer; }
+  .err { color: #c00; font-size: 13px; }
+  .done { text-align: center; padding: 60px; }
+</style>
+</head>
+<body>
+<div class="banner">TEST PAGE: local copy of Calendly's booking form. Nothing here reaches Calendly.</div>
+<div id="app"></div>
+<script>
+  const app = document.getElementById('app');
+  const parts = location.pathname.split('/');
+  if (location.pathname.includes('/invitees/')) {
+    app.innerHTML = `<div class="card"><div class="done"><h1>✅ You are scheduled (mock)</h1>
+      <p>A calendar invitation has been sent to your email address.</p></div></div>`;
+  } else {
+    const start = new Date(decodeURIComponent(parts[3] || ''));
+    const when = isNaN(start) ? 'Thursday 7:00pm' : start.toLocaleString('en-US',
+      {timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit'});
+    app.innerHTML = `
+    <div class="card">
+      <div class="left">
+        <div class="meta">Giana LaCedra</div>
+        <h1>Individual Pitching Lesson</h1>
+        <div class="meta">🕒 60 min</div>
+        <div class="meta">📅 ${when}, Eastern Time</div>
+      </div>
+      <form class="right" id="f" novalidate>
+        <h2>Enter Details</h2>
+        <label for="full_name_input">Name *</label>
+        <input id="full_name_input" name="full_name" type="text" required>
+        <label for="email_input">Email *</label>
+        <input id="email_input" name="email" type="email" required>
+        <label for="phone_input">Phone Number *</label>
+        <div class="phone"><span>🇺🇸 +1</span><input id="phone_input" type="tel" name="phone" required></div>
+        <label for="q0">Player's name *</label>
+        <textarea id="q0" name="question_0" required></textarea>
+        <label for="q1">Please share anything that will help prepare for our meeting.</label>
+        <textarea id="q1" name="question_1"></textarea>
+        <div class="err" id="err"></div>
+        <button type="submit">Schedule Event</button>
+      </form>
+    </div>`;
+    document.getElementById('f').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const missing = [...e.target.querySelectorAll('[required]')].filter(x => !x.value.trim());
+      if (missing.length) { document.getElementById('err').textContent = 'Please fill in all required fields.'; return; }
+      location.href = location.origin + '/invitees/mock-' + Date.now();
+    });
+  }
+</script>
+</body>
+</html>

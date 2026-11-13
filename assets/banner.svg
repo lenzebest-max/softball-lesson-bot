@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1d3a"/>
+      <stop offset="1" stop-color="#1d3f72"/>
+    </linearGradient>
+    <radialGradient id="ball" cx="0.38" cy="0.35" r="0.75">
+      <stop offset="0" stop-color="#fbff7a"/>
+      <stop offset="1" stop-color="#d6e000"/>
+    </radialGradient>
+    <pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.4" fill="#ffffff" opacity="0.07"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="320" rx="24" fill="url(#bg)"/>
+  <rect width="1200" height="320" rx="24" fill="url(#dots)"/>
+  <!-- diamond chalk lines -->
+  <path d="M760 300 L1010 60 L1260 300" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="6"/>
+
+  <!-- softball -->
+  <g transform="translate(1010 165)">
+    <circle r="105" fill="#000" opacity="0.25" transform="translate(8 10)"/>
+    <circle r="105" fill="url(#ball)"/>
+    <path d="M-62 -85 C-20 -40 -20 40 -62 85" fill="none" stroke="#d62828" stroke-width="5"/>
+    <path d="M62 -85 C20 -40 20 40 62 85" fill="none" stroke="#d62828" stroke-width="5"/>
+    <g stroke="#d62828" stroke-width="4" stroke-linecap="round">
+      <path d="M-58 -62 l14 -6"/><path d="M-46 -38 l15 -3"/><path d="M-40 -12 l15 0"/>
+      <path d="M-40 14 l15 0"/><path d="M-46 40 l15 3"/><path d="M-58 64 l14 6"/>
+      <path d="M58 -62 l-14 -6"/><path d="M46 -38 l-15 -3"/><path d="M40 -12 l-15 0"/>
+      <path d="M40 14 l-15 0"/><path d="M46 40 l-15 3"/><path d="M58 64 l-14 6"/>
+    </g>
+  </g>
+
+  <text x="70" y="128" font-family="Georgia, 'Times New Roman', serif" font-size="66" font-weight="700"
+        fill="#ffffff" letter-spacing="1">Softball Lesson Bot</text>
+  <text x="72" y="182" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="26" fill="#cfe0ff">
+    Grabs the Thursday 7 PM pitching lesson the moment it opens.</text>
+
+  <g font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="19" font-weight="600">
+    <rect x="72" y="222" width="150" height="40" rx="20" fill="#f2c94c"/>
+    <text x="147" y="248" text-anchor="middle" fill="#0b1d3a">⏱ every 5 min</text>
+    <rect x="238" y="222" width="188" height="40" rx="20" fill="none" stroke="#f2c94c" stroke-width="2"/>
+    <text x="332" y="248" text-anchor="middle" fill="#f2c94c">Thu · 7 PM → 6 PM</text>
+    <rect x="442" y="222" width="190" height="40" rx="20" fill="none" stroke="#f2c94c" stroke-width="2"/>
+    <text x="537" y="248" text-anchor="middle" fill="#f2c94c">GitHub Actions</text>
+  </g>
+</svg>

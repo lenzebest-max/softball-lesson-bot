@@ -9,6 +9,10 @@ on:
         description: "Dry run (fill the form and screenshot it, don't book)"
         type: boolean
         default: true
+      simulate_open_slot:
+        description: "Simulate an open Thursday 7 PM slot (tests the full flow, never books)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -43,6 +47,7 @@ jobs:
           BOOK_NOTES: ${{ secrets.BOOK_NOTES }}
           EVENT_SLUG: ${{ vars.EVENT_SLUG }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+          SIMULATE_OPEN_SLOT: ${{ github.event_name == 'workflow_dispatch' && inputs.simulate_open_slot && 'true' || 'false' }}
         run: python book.py
 
       - name: Commit booked.json
