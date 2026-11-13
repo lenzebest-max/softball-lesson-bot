@@ -174,7 +174,11 @@ def fill_form(page):
 
 def submit(page):
     page.get_by_role("button", name=re.compile("Schedule Event", re.I)).click()
-    page.wait_for_url(re.compile(r"/invitees/"), timeout=60000)
+    # Success = Calendly's /invitees/ confirmation page, or the coach's external redirect page
+    # ("You will be redirected to an external site" is shown under the button).
+    form_host = urllib.parse.urlparse(page.url).hostname
+    page.wait_for_url(lambda u: "/invitees/" in u or urllib.parse.urlparse(u).hostname != form_host,
+                      timeout=60000)
     page.screenshot(path="confirmed.png", full_page=True)
     print(f"Booked! Confirmation: {page.url}")
 
