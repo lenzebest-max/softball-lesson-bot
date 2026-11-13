@@ -1,0 +1,66 @@
+name: Book softball lesson
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (fill the form and screenshot it, don't book)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: book-lesson
+  cancel-in-progress: false
+
+jobs:
+  book:
+    # Scheduled runs only book when the repo variable BOT_ENABLED is "true".
+    if: github.event_name == 'workflow_dispatch' || vars.BOT_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright + Chromium
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Run booking bot
+        env:
+          BOOK_NAME: ${{ secrets.BOOK_NAME }}
+          BOOK_EMAIL: ${{ secrets.BOOK_EMAIL }}
+          BOOK_PHONE: ${{ secrets.BOOK_PHONE }}
+          BOOK_NOTES: ${{ secrets.BOOK_NOTES }}
+          EVENT_SLUG: ${{ vars.EVENT_SLUG }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+        run: python book.py
+
+      - name: Commit booked.json
+        if: always()
+        run: |
+          if [ -f booked.json ] && [ -n "$(git status --porcelain booked.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add booked.json
+            git commit -m "Record booked lesson date"
+            git push
+          fi
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: "*.png"
+          retention-days: 1
+          if-no-files-found: ignore
