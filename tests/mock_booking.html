@@ -20,6 +20,7 @@
   .phone { display: flex; gap: 8px; } .phone span { padding: 12px; border: 1px solid #b2b2b2; border-radius: 8px; }
   button { margin-top: 24px; background: #006bff; color: #fff; border: 0; border-radius: 40px;
            padding: 12px 22px; font-size: 15px; font-weight: bold; cursor: pointer; }
+  .checks div { margin: 8px 0; } .checks input { width: auto; }
   .err { color: #c00; font-size: 13px; }
   .done { text-align: center; padding: 60px; }
 </style>
@@ -42,7 +43,8 @@
       <div class="left">
         <div class="meta">Giana LaCedra</div>
         <h1>Individual Pitching Lesson</h1>
-        <div class="meta">🕒 60 min</div>
+        <div class="meta">🕒 1 hr</div>
+        <div class="meta">📍 Lowell, Massachusetts</div>
         <div class="meta">📅 ${when}, Eastern Time</div>
       </div>
       <form class="right" id="f" novalidate>
@@ -51,12 +53,20 @@
         <input id="full_name_input" name="full_name" type="text" required>
         <label for="email_input">Email *</label>
         <input id="email_input" name="email" type="email" required>
-        <label for="phone_input">Phone Number *</label>
-        <div class="phone"><span>🇺🇸 +1</span><input id="phone_input" type="tel" name="phone" required></div>
-        <label for="q0">Player's name *</label>
-        <textarea id="q0" name="question_0" required></textarea>
-        <label for="q1">Please share anything that will help prepare for our meeting.</label>
-        <textarea id="q1" name="question_1"></textarea>
+        <label for="q0">Athletes name</label>
+        <input id="q0" name="question_0" type="text">
+        <label for="q1">Athletes age/ playing level</label>
+        <input id="q1" name="question_1" type="text">
+        <label>How often are you looking to book?</label>
+        <div class="checks">
+          <div><input type="checkbox" id="c0" name="question_2"> <span>Once in a while</span></div>
+          <div><input type="checkbox" id="c1" name="question_2"> <span>Weekly (Recurring day + time)</span></div>
+          <div><input type="checkbox" id="c2" name="question_2"> <span>Weekly (Changing day + time)</span></div>
+          <div><input type="checkbox" id="c3" name="question_2"> <span>Twice a week</span></div>
+          <div><input type="checkbox" id="c4" name="question_2"> <span>Bi-weekly</span></div>
+        </div>
+        <label for="phone_input">Send text messages to</label>
+        <div class="phone"><span>🇺🇸 +1</span><input id="phone_input" type="tel" name="phone"></div>
         <div class="err" id="err"></div>
         <button type="submit">Schedule Event</button>
       </form>
@@ -64,6 +74,7 @@
     document.getElementById('f').addEventListener('submit', (e) => {
       e.preventDefault();
       const missing = [...e.target.querySelectorAll('[required]')].filter(x => !x.value.trim());
+      if (!document.getElementById('q0').value.trim()) missing.push('athlete');
       if (missing.length) { document.getElementById('err').textContent = 'Please fill in all required fields.'; return; }
       location.href = location.origin + '/invitees/mock-' + Date.now();
     });

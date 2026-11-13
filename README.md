@@ -25,7 +25,7 @@ grabs **6:00 PM** instead.
 |---|---|
 | ⏱️ **Checks every 5 minutes** | A GitHub Actions cron job, so nothing has to run on your computer |
 | 🎯 **Targets the right slot** | Thursday 7 PM ET first, 6 PM ET as the fallback, up to 15 days ahead |
-| 📝 **Fills the form like a person** | Name, email, phone, and the player's name in the *player* question |
+| 📝 **Fills the form like a person** | Name, email, phone, and the player's name in the *Athletes name* question |
 | 🔁 **Never double-books** | Every booked date goes into [`booked.json`](booked.json) and is skipped afterwards |
 | 🔒 **Keeps personal info private** | Everything personal lives in encrypted repo secrets, never in the code |
 | 📸 **Shows its work** | Screenshots of each run are saved as a downloadable artifact for one day |
@@ -56,7 +56,7 @@ flowchart LR
 | `BOOK_NAME` | Name on the booking |
 | `BOOK_EMAIL` | Email that gets the confirmation |
 | `BOOK_PHONE` | Phone number, used if the form asks for one |
-| `BOOK_NOTES` | Player's name, typed into the question that asks for the player |
+| `BOOK_NOTES` | Player's name, typed into the "Athletes name" question |
 
 **Variables** (same page → *Variables*)
 
