@@ -3,12 +3,15 @@
 All personal info comes from environment variables (GitHub secrets):
   BOOK_NAME, BOOK_EMAIL, BOOK_PHONE, BOOK_NOTES (player's name)
 Optional: EVENT_SLUG (lesson type), DRY_RUN=true (fill + screenshot, never submit),
-          SIMULATE_OPEN_SLOT=true (pretend next Thursday 7 PM is open; never books).
+          SIMULATE_OPEN_SLOT=true (pretend next Thursday 7 PM is open; never books),
+          WATCH_MINUTES=N (keep checking every WATCH_INTERVAL seconds, default 60, for N minutes).
 """
 import json
 import os
 import re
+import subprocess
 import sys
+import time
 import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta
@@ -31,6 +34,8 @@ NOTES = os.environ.get("BOOK_NOTES", "").strip()
 EVENT_SLUG = os.environ.get("EVENT_SLUG", "").strip()
 DRY_RUN = os.environ.get("DRY_RUN", "").strip().lower() in ("1", "true", "yes")
 SIMULATE = os.environ.get("SIMULATE_OPEN_SLOT", "").strip().lower() in ("1", "true", "yes")
+WATCH_MINUTES = float(os.environ.get("WATCH_MINUTES", "0") or 0)
+WATCH_INTERVAL = float(os.environ.get("WATCH_INTERVAL", "60") or 60)
 
 
 def get_json(url):
@@ -287,6 +292,9 @@ def main():
         simulate(et["slug"], start_time, local_date)
         print("SIMULATE_OPEN_SLOT: done, booked.json untouched")
         return
+    if WATCH_MINUTES > 0 and not DRY_RUN:
+        watch(et)
+        return
     booked = load_booked()
     today = datetime.now(TZ).date()
     spots = available_spots(et["uuid"], today, today + timedelta(days=LOOKAHEAD_DAYS))
@@ -312,6 +320,58 @@ def main():
         booked.add(local_date)
         save_booked(booked)
         print(f"Recorded {local_date} in booked.json")
+
+
+def push_booked(local_date):
+    """Commit + push booked.json right away so a later crash can't forget a booking."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return
+    cmds = [
+        ["git", "config", "user.name", "github-actions[bot]"],
+        ["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"],
+        ["git", "add", "booked.json"],
+        ["git", "commit", "-m", f"Record booked lesson {local_date}"],
+        ["git", "pull", "--rebase", "--quiet"],
+        ["git", "push", "--quiet"],
+    ]
+    for c in cmds:
+        r = subprocess.run(c, capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f"  warning: {' '.join(c)} failed: {(r.stderr or r.stdout).strip()}")
+            return
+
+
+def watch(et):
+    """Check every WATCH_INTERVAL seconds for WATCH_MINUTES, booking any open Thursday 7/6 PM."""
+    deadline = time.monotonic() + WATCH_MINUTES * 60
+    booked = load_booked()
+    checks = 0
+    print(f"WATCH: checking every {WATCH_INTERVAL:.0f}s for {WATCH_MINUTES:.0f} min", flush=True)
+    while True:
+        checks += 1
+        try:
+            today = datetime.now(TZ).date()
+            spots = available_spots(et["uuid"], today, today + timedelta(days=LOOKAHEAD_DAYS))
+            local_date, start_time = pick_thursday_spot(spots, booked)
+            stamp = datetime.now(TZ).strftime("%m-%d %I:%M %p ET")
+            if start_time:
+                print(f"[{stamp}] OPEN: {local_date} at "
+                      f"{datetime.fromisoformat(start_time).astimezone(TZ):%I:%M %p} ET, booking now",
+                      flush=True)
+                book(et["slug"], start_time, local_date)
+                booked.add(local_date)
+                save_booked(booked)
+                print(f"Recorded {local_date} in booked.json", flush=True)
+                push_booked(local_date)
+            elif checks == 1 or checks % 30 == 0:
+                print(f"[{stamp}] check #{checks}: {len(spots)} open spot(s), no Thursday 7/6 PM yet",
+                      flush=True)
+        except Exception as e:
+            print(f"check #{checks} failed, will retry: {e!r}", flush=True)
+        if time.monotonic() + WATCH_INTERVAL > deadline:
+            break
+        time.sleep(WATCH_INTERVAL)
+    print(f"WATCH: done after {checks} checks", flush=True)
 
 
 if __name__ == "__main__":

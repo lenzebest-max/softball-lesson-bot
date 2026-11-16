@@ -23,7 +23,7 @@ grabs **6:00 PM** instead.
 
 | | |
 |---|---|
-| ⏱️ **Checks every 5 minutes** | [cron-job.org](https://cron-job.org) starts the GitHub Action, with GitHub's own schedule as a backup, so nothing runs on your computer |
+| ⏱️ **Checks every minute, around the clock** | A relay of GitHub Actions runs: each one watches Calendly for ~5h40m, then starts the next. Nothing runs on your computer |
 | 🎯 **Targets the right slot** | Thursday 7 PM ET first, 6 PM ET as the fallback, up to 15 days ahead |
 | 📝 **Fills the form like a person** | Name, email, phone, and the player's name in the *Athletes name* question |
 | 🔁 **Never double-books** | Every booked date goes into [`booked.json`](booked.json) and is skipped afterwards |
@@ -34,7 +34,7 @@ grabs **6:00 PM** instead.
 
 ```mermaid
 flowchart LR
-    A[⏰ Every 5 min] --> B{Bot enabled?}
+    A[⏰ Every minute] --> B{Bot enabled?}
     B -- no --> Z[💤 Skip]
     B -- yes --> C[🔎 Ask Calendly for open spots]
     C --> D{Thursday 7 PM<br/>or 6 PM open?}
@@ -65,19 +65,17 @@ flowchart LR
 | `EVENT_SLUG` | Which lesson type to book. Set to `individual-pitching-lesson-1`. Every run's log lists the available types. |
 | `BOT_ENABLED` | `true` lets the bot book for real. Anything else pauses every real booking, however the run was started. |
 
-## ⏰ The 5-minute timer
+## ⏰ The always-on watcher
 
-GitHub's built-in schedule can lag or skip on busy days, so a free [cron-job.org](https://cron-job.org) job
-starts the workflow every 5 minutes instead:
+GitHub's built-in schedule can run hours late, so every live run is a **watcher**: it checks Calendly
+once a minute for about 5 hours 40 minutes (just under GitHub's 6-hour job limit), books the moment a
+Thursday 7 PM / 6 PM slot opens, and then queues the next watcher itself. Only one watcher runs at a time.
+The repo is public, so these Actions minutes are free.
 
-| Setting | Value |
-|---|---|
-| URL | `https://api.github.com/repos/lenzebest-max/softball-lesson-bot/actions/workflows/book.yml/dispatches` |
-| Method | `POST` |
-| Headers | `Authorization: Bearer <fine-grained token, Actions: read & write on this repo only>`<br>`Accept: application/vnd.github+json`<br>`Content-Type: application/json` |
-| Body | `{"ref":"main","inputs":{"dry_run":"false"}}` |
+The `*/5` schedule is just a backup: if the relay ever breaks, the next scheduled run starts it again.
+A watcher that dies within 20 minutes doesn't relay, so a broken setup can't spin.
 
-GitHub replies `204 No Content` when the run has started.
+To restart the relay by hand: `gh workflow run book.yml -f dry_run=false`
 
 ## 🧪 Testing without booking
 
@@ -91,7 +89,9 @@ Screenshots appear under the run's **Artifacts → screenshots**.
 ## ⏸️ Turning it off
 
 ```bash
-gh variable set BOT_ENABLED --body false   # pause all real bookings
+gh variable set BOT_ENABLED --body false   # stops the relay after the current watcher
+gh run list --workflow book.yml --status in_progress   # then cancel the running watcher now:
+gh run cancel <run id>
 gh workflow disable book.yml               # or switch the workflow off completely
 ```
 

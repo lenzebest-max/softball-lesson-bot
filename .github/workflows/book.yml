@@ -1,8 +1,10 @@
 name: Book softball lesson
 
+# Live runs are relay watchers: each one checks Calendly every minute for ~5h40m, then starts
+# the next run itself, so there is always one watching. GitHub's schedule (often hours late)
+# and cron-job.org only matter as a backup that restarts the relay if it ever breaks.
 on:
   schedule:
-    # Every 5 minutes (GitHub may delay scheduled runs when busy)
     - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
@@ -17,9 +19,14 @@ on:
 
 permissions:
   contents: write
+  actions: write   # lets the watcher start the next run
 
+# One live watcher at a time (others wait, never cancel it). Test runs get their own group
+# so they don't sit behind a 6-hour watcher.
 concurrency:
-  group: book-lesson
+  group: >-
+    ${{ (github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.simulate_open_slot))
+        && format('book-test-{0}', github.run_id) || 'book-live' }}
   cancel-in-progress: false
 
 jobs:
@@ -30,8 +37,13 @@ jobs:
       vars.BOT_ENABLED == 'true' ||
       (github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.simulate_open_slot))
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 355
+    env:
+      LIVE: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.simulate_open_slot)) }}
     steps:
+      - name: Note start time
+        run: echo "STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
@@ -52,6 +64,8 @@ jobs:
           EVENT_SLUG: ${{ vars.EVENT_SLUG }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
           SIMULATE_OPEN_SLOT: ${{ github.event_name == 'workflow_dispatch' && inputs.simulate_open_slot && 'true' || 'false' }}
+          WATCH_MINUTES: ${{ env.LIVE == 'true' && '340' || '0' }}
+          WATCH_INTERVAL: "60"
         run: python book.py
 
       - name: Commit booked.json
@@ -73,3 +87,18 @@ jobs:
           path: "*.png"
           retention-days: 1
           if-no-files-found: ignore
+
+      # Hand off to the next watcher. Skipped if this run was cancelled (that's how you stop the
+      # relay) or died within 20 minutes (so a broken setup can't spin; the schedule retries later).
+      - name: Start the next watcher
+        if: ${{ !cancelled() && env.LIVE == 'true' && vars.BOT_ENABLED == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          elapsed=$(( $(date +%s) - STARTED ))
+          if [ "$elapsed" -lt 1200 ]; then
+            echo "Run lasted only ${elapsed}s; not relaying (GitHub's schedule will restart it)."
+            exit 0
+          fi
+          gh workflow run book.yml --repo "$GITHUB_REPOSITORY" --ref main -f dry_run=false -f simulate_open_slot=false
+          echo "Next watcher queued."
