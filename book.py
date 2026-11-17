@@ -38,6 +38,63 @@ WATCH_MINUTES = float(os.environ.get("WATCH_MINUTES", "0") or 0)
 WATCH_INTERVAL = float(os.environ.get("WATCH_INTERVAL", "60") or 60)
 
 
+# ─── ascii art for the run logs ───────────────────────────────────────────────────────────────
+BANNER = r"""
+        .-"````"-.          _____  ____  ______ _______ ____          _      _
+      .'  )    (  '.       / ____|/ __ \|  ____|__   __|  _ \   /\   | |    | |
+     /   (      )   \     | (___ | |  | | |__     | |  | |_) | /  \  | |    | |
+    |     )    (     |     \___ \| |  | |  __|    | |  |  _ < / /\ \ | |    | |
+    |    (      )    |     ____) | |__| | |       | |  | |_) / ____ \| |____| |____
+     \    )    (    /     |_____/ \____/|_|       |_|  |____/_/    \_\______|______|
+      '. (      ) .'                 _    ___ ___ ___  ___  _  _   ___  ___ _____
+        '-......-'                  | |  | __/ __/ __|/ _ \| \| | | _ )/ _ \_   _|
+                                    | |__| _|\__ \__ \ (_) | .` | | _ \ (_) || |
+                                    |____|___|___/___/\___/|_|\_| |___/\___/ |_|
+   ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ 
+"""
+
+BOOKED_ART = r"""
+   ______  _____  _____ _   __ ___________ _
+   | ___ \|  _  ||  _  | | / /|  ___|  _  \ |
+   | |_/ /| | | || | | | |/ / | |__ | | | | |
+   | ___ \| | | || | | |    \ |  __|| | | | |
+   | |_/ /\ \_/ /\ \_/ / |\  \| |___| |/ /|_|
+   \____/  \___/  \___/\_| \_/\____/|___/ (_)
+"""
+
+
+def scoreboard(title, rows, width=56):
+    """Rows of (label, value) drawn as a little stadium scoreboard."""
+    inner = width - 2
+    out = ["╔" + "═" * inner + "╗",
+           "║" + f"  {title}".ljust(inner) + "║",
+           "╠" + "═" * inner + "╣"]
+    for label, value in rows:
+        out.append("║" + f"  {label} {'.' * max(2, 14 - len(label))} {value}".ljust(inner)[:inner] + "║")
+    out.append("╚" + "═" * inner + "╝")
+    return "\n".join(out)
+
+
+def say_art(text):
+    """Print art without ever letting a console encoding problem stop the bot."""
+    try:
+        print(text, flush=True)
+    except Exception:
+        pass
+
+
+def job_summary(markdown):
+    """Add to the GitHub Actions run page (no-op outside Actions)."""
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(markdown + "\n")
+    except Exception:
+        pass
+
+
 def get_json(url):
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=30) as r:
@@ -280,6 +337,21 @@ def next_thursday_7pm():
 
 
 def main():
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+    say_art(BANNER)
+    mode = ("SIMULATION" if SIMULATE else "DRY RUN" if DRY_RUN
+            else "LIVE WATCH" if WATCH_MINUTES > 0 else "LIVE (ONE CHECK)")
+    say_art(scoreboard("T O D A Y ' S   G A M E", [
+        ("MODE", mode),
+        ("TARGET", "Thursday 7:00 PM ET"),
+        ("BACKUP", "Thursday 6:00 PM ET"),
+        ("LOOK AHEAD", f"{LOOKAHEAD_DAYS} days"),
+        ("CHECK EVERY", f"{WATCH_INTERVAL:.0f} s for {WATCH_MINUTES:.0f} min" if WATCH_MINUTES > 0 else "once"),
+    ]) + "\n")
+
     missing = [k for k, v in (("BOOK_NAME", NAME), ("BOOK_EMAIL", EMAIL)) if not v]
     if missing:
         raise SystemExit(f"Missing env vars: {', '.join(missing)}")
@@ -320,6 +392,7 @@ def main():
         booked.add(local_date)
         save_booked(booked)
         print(f"Recorded {local_date} in booked.json")
+        say_art(BOOKED_ART)
 
 
 def push_booked(local_date):
@@ -345,13 +418,16 @@ def watch(et):
     """Check every WATCH_INTERVAL seconds for WATCH_MINUTES, booking any open Thursday 7/6 PM."""
     deadline = time.monotonic() + WATCH_MINUTES * 60
     booked = load_booked()
-    checks = 0
+    checks = failures = most_spots = 0
+    new_bookings = []
+    started = datetime.now(TZ)
     print(f"WATCH: checking every {WATCH_INTERVAL:.0f}s for {WATCH_MINUTES:.0f} min", flush=True)
     while True:
         checks += 1
         try:
             today = datetime.now(TZ).date()
             spots = available_spots(et["uuid"], today, today + timedelta(days=LOOKAHEAD_DAYS))
+            most_spots = max(most_spots, len(spots))
             local_date, start_time = pick_thursday_spot(spots, booked)
             stamp = datetime.now(TZ).strftime("%m-%d %I:%M %p ET")
             if start_time:
@@ -363,15 +439,28 @@ def watch(et):
                 save_booked(booked)
                 print(f"Recorded {local_date} in booked.json", flush=True)
                 push_booked(local_date)
+                when = f"{local_date} {datetime.fromisoformat(start_time).astimezone(TZ):%I:%M %p} ET"
+                new_bookings.append(when)
+                say_art(BOOKED_ART + f"   >>> Thursday {when}  -  see you at the field! <<<\n")
             elif checks == 1 or checks % 30 == 0:
                 print(f"[{stamp}] check #{checks}: {len(spots)} open spot(s), no Thursday 7/6 PM yet",
                       flush=True)
         except Exception as e:
+            failures += 1
             print(f"check #{checks} failed, will retry: {e!r}", flush=True)
         if time.monotonic() + WATCH_INTERVAL > deadline:
             break
         time.sleep(WATCH_INTERVAL)
     print(f"WATCH: done after {checks} checks", flush=True)
+    board = scoreboard("F I N A L   S C O R E", [
+        ("INNINGS", f"{started:%m-%d %I:%M %p} - {datetime.now(TZ):%I:%M %p} ET"),
+        ("CHECKS", str(checks)),
+        ("ERRORS", str(failures)),
+        ("MOST SPOTS", f"{most_spots} open on Calendly"),
+        ("RESULT", "BOOKED " + ", ".join(new_bookings) if new_bookings else "no Thursday 7/6 PM yet"),
+    ], width=64)
+    say_art("\n" + board)
+    job_summary("### 🥎 Softball Lesson Bot\n\n```text\n" + board + "\n```")
 
 
 if __name__ == "__main__":
