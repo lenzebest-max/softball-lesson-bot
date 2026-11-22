@@ -36,7 +36,7 @@
       <p>A calendar invitation has been sent to your email address.</p></div></div>`;
   } else {
     const start = new Date(decodeURIComponent(parts[3] || ''));
-    const when = isNaN(start) ? 'Thursday 7:00pm' : start.toLocaleString('en-US',
+    const when = isNaN(start) ? 'Monday 6:00pm' : start.toLocaleString('en-US',
       {timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit'});
     app.innerHTML = `
     <div class="card">

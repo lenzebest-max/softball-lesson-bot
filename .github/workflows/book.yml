@@ -1,6 +1,6 @@
 name: Book softball lesson
 
-# Live runs are relay watchers: each one checks Calendly every minute for ~5h40m, then starts
+# Live runs are relay watchers: each one checks Calendly every 10 seconds for ~5h40m, then starts
 # the next run itself, so there is always one watching. GitHub's schedule (often hours late)
 # and cron-job.org only matter as a backup that restarts the relay if it ever breaks.
 on:
@@ -13,7 +13,7 @@ on:
         type: boolean
         default: true
       simulate_open_slot:
-        description: "Simulate an open Thursday 7 PM slot (tests the full flow, never books)"
+        description: "Simulate an open Monday slot (tests the full flow, never books)"
         type: boolean
         default: false
 
@@ -65,7 +65,7 @@ jobs:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
           SIMULATE_OPEN_SLOT: ${{ github.event_name == 'workflow_dispatch' && inputs.simulate_open_slot && 'true' || 'false' }}
           WATCH_MINUTES: ${{ env.LIVE == 'true' && '340' || '0' }}
-          WATCH_INTERVAL: "60"
+          WATCH_INTERVAL: ${{ vars.WATCH_INTERVAL || '10' }}   # seconds between checks
         run: python book.py
 
       - name: Commit booked.json
