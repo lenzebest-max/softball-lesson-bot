@@ -1,7 +1,7 @@
 name: Book softball lesson
 
 # Live runs are relay watchers: each one checks Calendly every 10 seconds for ~5h40m, then starts
-# the next run itself, so there is always one watching. GitHub's schedule (often hours late)
+# the next run itself 4 minutes early (it waits in the queue and starts the instant this one ends). GitHub's schedule (often hours late)
 # and cron-job.org only matter as a backup that restarts the relay if it ever breaks.
 on:
   schedule:
@@ -50,6 +50,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}
+
       - name: Install Playwright + Chromium
         run: |
           pip install playwright
@@ -66,6 +71,8 @@ jobs:
           SIMULATE_OPEN_SLOT: ${{ github.event_name == 'workflow_dispatch' && inputs.simulate_open_slot && 'true' || 'false' }}
           WATCH_MINUTES: ${{ env.LIVE == 'true' && '340' || '0' }}
           WATCH_INTERVAL: ${{ vars.WATCH_INTERVAL || '10' }}   # seconds between checks
+          RELAY: ${{ env.LIVE == 'true' && vars.BOT_ENABLED == 'true' && 'true' || 'false' }}
+          GH_TOKEN: ${{ github.token }}
         run: python book.py
 
       - name: Commit booked.json
@@ -88,10 +95,10 @@ jobs:
           retention-days: 1
           if-no-files-found: ignore
 
-      # Hand off to the next watcher. Skipped if this run was cancelled (that's how you stop the
+      # Fallback hand-off (book.py normally queues the next watcher 4 minutes early, so this is skipped). Skipped if this run was cancelled (that's how you stop the
       # relay) or died within 20 minutes (so a broken setup can't spin; the schedule retries later).
       - name: Start the next watcher
-        if: ${{ !cancelled() && env.LIVE == 'true' && vars.BOT_ENABLED == 'true' }}
+        if: ${{ !cancelled() && env.LIVE == 'true' && vars.BOT_ENABLED == 'true' && hashFiles('.relay_queued') == '' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

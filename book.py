@@ -394,6 +394,21 @@ def push_booked(local_date):
             return
 
 
+def queue_next_watcher():
+    """Queue the next watcher while this one is still running. The workflow's concurrency group
+    holds it until this job ends, so it starts the moment we finish (no waiting on a late schedule)."""
+    if os.environ.get("RELAY") != "true":
+        return
+    try:
+        subprocess.run(["gh", "workflow", "run", "book.yml", "--repo", os.environ["GITHUB_REPOSITORY"],
+                        "--ref", "main", "-f", "dry_run=false", "-f", "simulate_open_slot=false"],
+                       check=True, timeout=60)
+        Path(".relay_queued").write_text("1")
+        print("Next watcher queued; it starts the moment this one ends.", flush=True)
+    except Exception as e:
+        print(f"Could not queue the next watcher early ({e!r}); the workflow will try again.", flush=True)
+
+
 def watch(et):
     """Check every WATCH_INTERVAL seconds for WATCH_MINUTES, booking the best open Monday slot."""
     deadline = time.monotonic() + WATCH_MINUTES * 60
@@ -401,6 +416,7 @@ def watch(et):
     checks = failures = most_spots = streak = 0
     heartbeat = max(1, round(300 / WATCH_INTERVAL))  # a status line about every 5 minutes
     new_bookings = []
+    relay_queued = False
     started = datetime.now(TZ)
     print(f"WATCH: checking every {WATCH_INTERVAL:g}s for {WATCH_MINUTES:.0f} min", flush=True)
     while True:
@@ -431,6 +447,9 @@ def watch(et):
             failures += 1
             streak += 1
             print(f"check #{checks} failed, will retry: {e!r}", flush=True)
+        if not relay_queued and deadline - time.monotonic() <= 240:
+            relay_queued = True
+            queue_next_watcher()
         # Fast when all is well; back off (up to 2 minutes) if Calendly starts refusing requests.
         pause = WATCH_INTERVAL if streak == 0 else min(120.0, WATCH_INTERVAL * 2 ** min(streak, 6))
         if time.monotonic() + pause > deadline:
