@@ -1,10 +1,10 @@
-"""Auto-book a Thursday 7:00 PM (fallback 6:00 PM) Eastern softball lesson on Calendly.
+"""Auto-book a Monday softball lesson (7 PM, else 6 PM, else 5 PM Eastern) on Calendly.
 
 All personal info comes from environment variables (GitHub secrets):
   BOOK_NAME, BOOK_EMAIL, BOOK_PHONE, BOOK_NOTES (player's name)
 Optional: EVENT_SLUG (lesson type), DRY_RUN=true (fill + screenshot, never submit),
-          SIMULATE_OPEN_SLOT=true (pretend next Thursday 7 PM is open; never books),
-          WATCH_MINUTES=N (keep checking every WATCH_INTERVAL seconds, default 60, for N minutes).
+          SIMULATE_OPEN_SLOT=true (pretend the next Monday slot is open; never books),
+          WATCH_MINUTES=N (keep checking every WATCH_INTERVAL seconds, default 10, for N minutes).
 """
 import json
 import os
@@ -21,8 +21,9 @@ from zoneinfo import ZoneInfo
 PROFILE = "gl-softball-lessons"
 TZ_NAME = "America/New_York"
 TZ = ZoneInfo(TZ_NAME)
-THURSDAY = 3
-PREFERRED_HOURS = (19, 18)  # 7 PM first, then 6 PM
+TARGET_WEEKDAY = 0                 # Monday (Mon=0 ... Sun=6)
+TARGET_DAY_NAME = "Monday"
+PREFERRED_HOURS = (19, 18, 17)     # 7 PM first, then 6 PM, then 5 PM: the latest open one wins
 LOOKAHEAD_DAYS = 15
 BOOKED_FILE = Path(__file__).with_name("booked.json")
 UA = "Mozilla/5.0 (softball-lesson-bot)"
@@ -35,52 +36,26 @@ EVENT_SLUG = os.environ.get("EVENT_SLUG", "").strip()
 DRY_RUN = os.environ.get("DRY_RUN", "").strip().lower() in ("1", "true", "yes")
 SIMULATE = os.environ.get("SIMULATE_OPEN_SLOT", "").strip().lower() in ("1", "true", "yes")
 WATCH_MINUTES = float(os.environ.get("WATCH_MINUTES", "0") or 0)
-WATCH_INTERVAL = float(os.environ.get("WATCH_INTERVAL", "60") or 60)
+WATCH_INTERVAL = float(os.environ.get("WATCH_INTERVAL", "10") or 10)
 
 
-# ─── ascii art for the run logs ───────────────────────────────────────────────────────────────
-BANNER = r"""
-        .-"````"-.          _____  ____  ______ _______ ____          _      _
-      .'  )    (  '.       / ____|/ __ \|  ____|__   __|  _ \   /\   | |    | |
-     /   (      )   \     | (___ | |  | | |__     | |  | |_) | /  \  | |    | |
-    |     )    (     |     \___ \| |  | |  __|    | |  |  _ < / /\ \ | |    | |
-    |    (      )    |     ____) | |__| | |       | |  | |_) / ____ \| |____| |____
-     \    )    (    /     |_____/ \____/|_|       |_|  |____/_/    \_\______|______|
-      '. (      ) .'                 _    ___ ___ ___  ___  _  _   ___  ___ _____
-        '-......-'                  | |  | __/ __/ __|/ _ \| \| | | _ )/ _ \_   _|
-                                    | |__| _|\__ \__ \ (_) | .` | | _ \ (_) || |
-                                    |____|___|___/___/\___/|_|\_| |___/\___/ |_|
-   ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ 
-"""
-
-BOOKED_ART = r"""
-   ______  _____  _____ _   __ ___________ _
-   | ___ \|  _  ||  _  | | / /|  ___|  _  \ |
-   | |_/ /| | | || | | | |/ / | |__ | | | | |
-   | ___ \| | | || | | |    \ |  __|| | | | |
-   | |_/ /\ \_/ /\ \_/ / |\  \| |___| |/ /|_|
-   \____/  \___/  \___/\_| \_/\____/|___/ (_)
-"""
+# --- plain-text helpers for the run logs ---
+def hour_label(hour):
+    """19 -> '7 PM'."""
+    return f"{hour % 12 or 12} PM" if hour >= 12 else f"{hour or 12} AM"
 
 
-def scoreboard(title, rows, width=56):
-    """Rows of (label, value) drawn as a little stadium scoreboard."""
-    inner = width - 2
-    out = ["╔" + "═" * inner + "╗",
-           "║" + f"  {title}".ljust(inner) + "║",
-           "╠" + "═" * inner + "╣"]
-    for label, value in rows:
-        out.append("║" + f"  {label} {'.' * max(2, 14 - len(label))} {value}".ljust(inner)[:inner] + "║")
-    out.append("╚" + "═" * inner + "╝")
-    return "\n".join(out)
+def slot_words():
+    """'7 PM, else 6 PM, else 5 PM' (used in logs and summaries)."""
+    return ", else ".join(hour_label(h) for h in PREFERRED_HOURS)
 
 
-def say_art(text):
-    """Print art without ever letting a console encoding problem stop the bot."""
-    try:
-        print(text, flush=True)
-    except Exception:
-        pass
+def panel(title, rows):
+    """A small aligned block of lines for the run log."""
+    width = max(len(label) for label, _ in rows)
+    lines = [title, "-" * len(title)]
+    lines += [f"  {label.ljust(width)}  {value}" for label, value in rows]
+    return "\n".join(lines)
 
 
 def job_summary(markdown):
@@ -145,18 +120,23 @@ def available_spots(uuid, start, end):
     return spots
 
 
-def pick_thursday_spot(spots, booked):
+_SKIP_NOTED = set()
+
+
+def pick_spot(spots, booked):
     by_date = {}
     for st in spots:
         local = datetime.fromisoformat(st).astimezone(TZ)
-        if local.weekday() != THURSDAY or local.minute != 0:
+        if local.weekday() != TARGET_WEEKDAY or local.minute != 0:
             continue
         by_date.setdefault(local.date().isoformat(), {})[local.hour] = st
     for d in sorted(by_date):
         if d in booked:
-            print(f"  {d}: already booked, skipping")
+            if d not in _SKIP_NOTED:  # say it once, not on every fast check
+                _SKIP_NOTED.add(d)
+                print(f"  {d}: already booked, skipping")
             continue
-        for hour in PREFERRED_HOURS:
+        for hour in PREFERRED_HOURS:  # latest hour first
             if hour in by_date[d]:
                 return d, by_date[d][hour]
     return None, None
@@ -281,7 +261,7 @@ def book(slug, start_time, local_date):
 
 
 def simulate(slug, start_time, local_date):
-    """Pretend a Thursday slot is open. Never books anything with Calendly.
+    """Pretend a Monday slot is open. Never books anything with Calendly.
 
     1. Opens the REAL Calendly form for that time, fills it, screenshots real_form.png (no submit).
     2. Runs the full flow, including clicking "Schedule Event", against a local copy of
@@ -329,10 +309,11 @@ def simulate(slug, start_time, local_date):
             browser.close()
 
 
-def next_thursday_7pm():
+def next_target_slot():
+    """The next Monday at the preferred (latest) hour, for the simulation."""
     now = datetime.now(TZ)
-    days = (THURSDAY - now.weekday()) % 7 or 7
-    t = (now + timedelta(days=days)).replace(hour=19, minute=0, second=0, microsecond=0)
+    days = (TARGET_WEEKDAY - now.weekday()) % 7 or 7
+    t = (now + timedelta(days=days)).replace(hour=PREFERRED_HOURS[0], minute=0, second=0, microsecond=0)
     return t.date().isoformat(), t.isoformat()
 
 
@@ -341,16 +322,14 @@ def main():
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
         pass
-    say_art(BANNER)
     mode = ("SIMULATION" if SIMULATE else "DRY RUN" if DRY_RUN
             else "LIVE WATCH" if WATCH_MINUTES > 0 else "LIVE (ONE CHECK)")
-    say_art(scoreboard("T O D A Y ' S   G A M E", [
-        ("MODE", mode),
-        ("TARGET", "Thursday 7:00 PM ET"),
-        ("BACKUP", "Thursday 6:00 PM ET"),
-        ("LOOK AHEAD", f"{LOOKAHEAD_DAYS} days"),
-        ("CHECK EVERY", f"{WATCH_INTERVAL:.0f} s for {WATCH_MINUTES:.0f} min" if WATCH_MINUTES > 0 else "once"),
-    ]) + "\n")
+    print(panel("Softball Lesson Bot", [
+        ("Mode", mode),
+        ("Target", f"{TARGET_DAY_NAME} {slot_words()} ET (latest open slot wins)"),
+        ("Look ahead", f"{LOOKAHEAD_DAYS} days"),
+        ("Check every", f"{WATCH_INTERVAL:g} s for {WATCH_MINUTES:.0f} min" if WATCH_MINUTES > 0 else "once"),
+    ]) + "\n", flush=True)
 
     missing = [k for k, v in (("BOOK_NAME", NAME), ("BOOK_EMAIL", EMAIL)) if not v]
     if missing:
@@ -359,8 +338,9 @@ def main():
     et = pick_event_type()
     print(f"Using lesson type: {et['name'].strip()} ({et['slug']})")
     if SIMULATE:
-        local_date, start_time = next_thursday_7pm()
-        print(f"SIMULATE_OPEN_SLOT: pretending {local_date} 7:00 PM ET is open (nothing will be booked)")
+        local_date, start_time = next_target_slot()
+        print(f"SIMULATE_OPEN_SLOT: pretending {local_date} {hour_label(PREFERRED_HOURS[0])} ET is open "
+              "(nothing will be booked)")
         simulate(et["slug"], start_time, local_date)
         print("SIMULATE_OPEN_SLOT: done, booked.json untouched")
         return
@@ -371,14 +351,14 @@ def main():
     today = datetime.now(TZ).date()
     spots = available_spots(et["uuid"], today, today + timedelta(days=LOOKAHEAD_DAYS))
     print(f"{len(spots)} available spot(s) in the next {LOOKAHEAD_DAYS} days")
-    local_date, start_time = pick_thursday_spot(spots, booked)
+    local_date, start_time = pick_spot(spots, booked)
 
     if not start_time:
         if not DRY_RUN:
-            print("No open Thursday 7 PM / 6 PM lesson right now.")
+            print(f"No open {TARGET_DAY_NAME} {slot_words()} lesson right now.")
             return
         # Dry run with nothing bookable: look further out for ANY open spot so the form can be tested.
-        print("DRY_RUN: no Thursday 7/6 PM spot; using any open spot (up to 90 days) to test the form")
+        print(f"DRY_RUN: no {TARGET_DAY_NAME} spot; using any open spot (up to 90 days) to test the form")
         spots = available_spots(et["uuid"], today, today + timedelta(days=90))
         if not spots:
             print("DRY_RUN: no open spots at all in the next 90 days; nothing to test against.")
@@ -392,7 +372,7 @@ def main():
         booked.add(local_date)
         save_booked(booked)
         print(f"Recorded {local_date} in booked.json")
-        say_art(BOOKED_ART)
+        print("BOOKED! See you at the field.", flush=True)
 
 
 def push_booked(local_date):
@@ -415,20 +395,22 @@ def push_booked(local_date):
 
 
 def watch(et):
-    """Check every WATCH_INTERVAL seconds for WATCH_MINUTES, booking any open Thursday 7/6 PM."""
+    """Check every WATCH_INTERVAL seconds for WATCH_MINUTES, booking the best open Monday slot."""
     deadline = time.monotonic() + WATCH_MINUTES * 60
     booked = load_booked()
-    checks = failures = most_spots = 0
+    checks = failures = most_spots = streak = 0
+    heartbeat = max(1, round(300 / WATCH_INTERVAL))  # a status line about every 5 minutes
     new_bookings = []
     started = datetime.now(TZ)
-    print(f"WATCH: checking every {WATCH_INTERVAL:.0f}s for {WATCH_MINUTES:.0f} min", flush=True)
+    print(f"WATCH: checking every {WATCH_INTERVAL:g}s for {WATCH_MINUTES:.0f} min", flush=True)
     while True:
         checks += 1
         try:
             today = datetime.now(TZ).date()
             spots = available_spots(et["uuid"], today, today + timedelta(days=LOOKAHEAD_DAYS))
             most_spots = max(most_spots, len(spots))
-            local_date, start_time = pick_thursday_spot(spots, booked)
+            local_date, start_time = pick_spot(spots, booked)
+            streak = 0
             stamp = datetime.now(TZ).strftime("%m-%d %I:%M %p ET")
             if start_time:
                 print(f"[{stamp}] OPEN: {local_date} at "
@@ -441,26 +423,30 @@ def watch(et):
                 push_booked(local_date)
                 when = f"{local_date} {datetime.fromisoformat(start_time).astimezone(TZ):%I:%M %p} ET"
                 new_bookings.append(when)
-                say_art(BOOKED_ART + f"   >>> Thursday {when}  -  see you at the field! <<<\n")
-            elif checks == 1 or checks % 30 == 0:
-                print(f"[{stamp}] check #{checks}: {len(spots)} open spot(s), no Thursday 7/6 PM yet",
-                      flush=True)
+                print(f"BOOKED! {when}. See you at the field.", flush=True)
+            elif checks == 1 or checks % heartbeat == 0:
+                print(f"[{stamp}] check #{checks}: {len(spots)} open spot(s), "
+                      f"no {TARGET_DAY_NAME} slot yet", flush=True)
         except Exception as e:
             failures += 1
+            streak += 1
             print(f"check #{checks} failed, will retry: {e!r}", flush=True)
-        if time.monotonic() + WATCH_INTERVAL > deadline:
+        # Fast when all is well; back off (up to 2 minutes) if Calendly starts refusing requests.
+        pause = WATCH_INTERVAL if streak == 0 else min(120.0, WATCH_INTERVAL * 2 ** min(streak, 6))
+        if time.monotonic() + pause > deadline:
             break
-        time.sleep(WATCH_INTERVAL)
+        time.sleep(pause)
     print(f"WATCH: done after {checks} checks", flush=True)
-    board = scoreboard("F I N A L   S C O R E", [
-        ("INNINGS", f"{started:%m-%d %I:%M %p} - {datetime.now(TZ):%I:%M %p} ET"),
-        ("CHECKS", str(checks)),
-        ("ERRORS", str(failures)),
-        ("MOST SPOTS", f"{most_spots} open on Calendly"),
-        ("RESULT", "BOOKED " + ", ".join(new_bookings) if new_bookings else "no Thursday 7/6 PM yet"),
-    ], width=64)
-    say_art("\n" + board)
-    job_summary("### 🥎 Softball Lesson Bot\n\n```text\n" + board + "\n```")
+    rows = [
+        ("Window", f"{started:%m-%d %I:%M %p} - {datetime.now(TZ):%I:%M %p} ET"),
+        ("Checks", str(checks)),
+        ("Errors", str(failures)),
+        ("Most open spots", f"{most_spots} on Calendly"),
+        ("Result", "BOOKED " + ", ".join(new_bookings) if new_bookings else f"no {TARGET_DAY_NAME} slot yet"),
+    ]
+    print("\n" + panel("Final score", rows), flush=True)
+    table = "\n".join(f"| {k} | {v} |" for k, v in rows)
+    job_summary("### Softball Lesson Bot: final score\n\n| | |\n|---|---|\n" + table)
 
 
 if __name__ == "__main__":
